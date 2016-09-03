@@ -1,0 +1,20 @@
+{
+  "name": "Port Forward",
+  "description": "Port Forward",
+  "version": "0.2",
+  "manifest_version": 2,
+  "sockets": {
+    "tcpServer": {
+      "listen": ""
+    },
+    "tcp": {
+      "connect": ""
+    }
+  },
+  "permissions": ["storage"],
+  "app": {
+    "background": {
+      "scripts": ["background.js", "background-launcher.js"]
+    }
+  }
+}
