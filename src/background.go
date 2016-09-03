@@ -26,17 +26,16 @@ var conns = make([]*tcp.Connection, 0, 1000)
 
 func registerServer(s *tcpserver.Server) {
 	mx.Lock()
-	defer mx.Unlock()
 	servers = append(servers, s)
+	mx.Unlock()
 }
 func registerConn(c *tcp.Connection) {
 	mx.Lock()
-	defer mx.Unlock()
 	conns = append(conns, c)
+	mx.Unlock()
 }
 func unregisterConn(c *tcp.Connection) {
 	mx.Lock()
-	defer mx.Unlock()
 	newConns := conns[:0]
 	for _, cn := range conns {
 		if cn == c {
@@ -45,6 +44,7 @@ func unregisterConn(c *tcp.Connection) {
 		newConns = append(newConns, cn)
 	}
 	conns = newConns
+	mx.Unlock()
 }
 
 func resetTCPServers() {
@@ -130,12 +130,11 @@ func serve(l net.Listener, remoteAddr string) {
 }
 
 func pipe(a, b net.Conn) {
-	defer unregisterConn(a.(*tcp.Connection))
-	defer a.Close()
-	defer unregisterConn(b.(*tcp.Connection))
-	defer b.Close()
-
 	io.Copy(a, b)
+	a.Close()
+	b.Close()
+	unregisterConn(a.(*tcp.Connection))
+	unregisterConn(b.(*tcp.Connection))
 }
 
 func watch() {
