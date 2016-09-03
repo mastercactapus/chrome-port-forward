@@ -1,6 +1,6 @@
 port module Main exposing (..)
 
-import Html exposing (Html, Attribute, div, hr, input, text, button)
+import Html exposing (Html, Attribute, div, hr, p, input, text, span, button, label)
 import Html.App as Html
 import Html.Attributes exposing (..)
 import Html.Events exposing (onInput, onClick, onCheck)
@@ -161,33 +161,54 @@ validAddr addr =
 
 forwardView : Int -> ForwardConfig -> Html Msg
 forwardView index ( enabled, local, remote ) =
-    div []
-        [ input
-            [ type' "checkbox"
-            , disabled (not (validAddr local) || not (validAddr remote))
-            , onCheck (\checked -> (Update index ( checked, local, remote )))
-            , checked enabled
+    div [ class "form-inline" ]
+        [ div [ class "checkbox" ]
+            [ label []
+                [ input
+                    [ type' "checkbox"
+                    , disabled (not (validAddr local) || not (validAddr remote))
+                    , onCheck (\checked -> (Update index ( checked, local, remote )))
+                    , checked enabled
+                    ]
+                    []
+                , text "Active"
+                ]
             ]
-            []
-        , input [ value local, onInput (\newLocal -> (Update index ( False, newLocal, remote ))) ] []
-        , input [ value remote, onInput (\newRemote -> (Update index ( False, local, newRemote ))) ] []
-        , button [ onClick (Remove index) ] [ text "Remove" ]
+        , div [ class "form-group" ]
+            [ input
+                [ class "form-control"
+                , placeholder "Local Address"
+                , value local
+                , onInput (\newLocal -> (Update index ( False, newLocal, remote )))
+                ]
+                []
+            ]
+        , div [ class "form-group" ]
+            [ input
+                [ value remote
+                , class "form-control"
+                , placeholder "Remote Address"
+                , onInput (\newRemote -> (Update index ( False, local, newRemote )))
+                ]
+                []
+            ]
+        , button [ class "btn btn-danger", onClick (Remove index) ] [ text "Remove" ]
         ]
 
 
 view : Model -> Html Msg
 view model =
-    div []
+    div [ class "container" ]
         (if not model.loaded then
-            [ div [ class "disabled" ] [ text "Loading..." ] ]
+            [ p [ class "lead" ] [ text "Loading..." ] ]
          else
             ((if List.length model.forwards == 0 then
-                [ div [ class "disabled" ] [ text "No configured port forwards" ] ]
+                [ p [ class "lead text-muted" ] [ text "No configured port forwards" ] ]
               else
                 List.indexedMap forwardView model.forwards
              )
                 ++ [ hr [] []
-                   , button [ onClick New ] [ text "Add" ]
+                   , button [ class "btn btn-default", onClick New ] [ text "Add" ]
                    ]
             )
         )
