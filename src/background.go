@@ -75,6 +75,7 @@ func resetTCPConns() {
 }
 
 func reset() {
+	log.Println("RESET")
 	resetTCPServers()
 	resetTCPConns()
 
