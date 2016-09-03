@@ -12,7 +12,7 @@ import Json.Decode exposing ((:=))
 
 
 forwardToJsonValue : ForwardConfig -> Json.Encode.Value
-forwardToJsonValue ( enabled, local, remote ) =
+forwardToJsonValue { enabled, local, remote } =
     Json.Encode.object
         [ ( "enabled", Json.Encode.bool enabled )
         , ( "local", Json.Encode.string local )
@@ -33,10 +33,12 @@ encodeForwards cfg =
 
 
 jsonToForward =
-    Json.Decode.object3 (,,)
+    Json.Decode.object5 ForwardConfig
         ("enabled" := Json.Decode.bool)
         ("local" := Json.Decode.string)
         ("remote" := Json.Decode.string)
+        ("lastLocalError" := Json.Decode.string)
+        ("lastRemoteError" := Json.Decode.string)
 
 
 decodeForwards : String -> List ForwardConfig
@@ -58,7 +60,12 @@ main =
 
 
 type alias ForwardConfig =
-    ( Bool, String, String )
+    { enabled : Bool
+    , local : String
+    , remote : String
+    , lastLocalError : String
+    , lastRemoteError : String
+    }
 
 
 type alias Model =
@@ -89,11 +96,9 @@ update msg model =
         New ->
             let
                 nf =
-                    model.forwards ++ [ ( False, "", "" ) ]
+                    model.forwards ++ [ { enabled = False, local = "", remote = "", lastLocalError = "", lastRemoteError = "" } ]
             in
-                ( { loaded = model.loaded
-                  , forwards = nf
-                  }
+                ( { model | forwards = nf }
                 , saveConfig (encodeForwards nf)
                 )
 
@@ -102,9 +107,7 @@ update msg model =
                 nf =
                     (List.take i model.forwards) ++ [ f ] ++ (List.drop (i + 1) model.forwards)
             in
-                ( { loaded = model.loaded
-                  , forwards = nf
-                  }
+                ( { model | forwards = nf }
                 , saveConfig (encodeForwards nf)
                 )
 
@@ -113,15 +116,14 @@ update msg model =
                 nf =
                     (List.take i model.forwards) ++ (List.drop (i + 1) model.forwards)
             in
-                ( { loaded = model.loaded
-                  , forwards = nf
-                  }
+                ( { model | forwards = nf }
                 , saveConfig (encodeForwards nf)
                 )
 
         Loaded cfgStr ->
-            ( { loaded = True
-              , forwards = decodeForwards cfgStr
+            ( { model
+                | loaded = True
+                , forwards = decodeForwards cfgStr
               }
             , Cmd.none
             )
@@ -160,15 +162,15 @@ validAddr addr =
 
 
 forwardView : Int -> ForwardConfig -> Html Msg
-forwardView index ( enabled, local, remote ) =
+forwardView index fCfg =
     div [ class "form-inline" ]
         [ div [ class "checkbox" ]
             [ label []
                 [ input
                     [ type' "checkbox"
-                    , disabled (not (validAddr local) || not (validAddr remote))
-                    , onCheck (\checked -> (Update index ( checked, local, remote )))
-                    , checked enabled
+                    , disabled (not (validAddr fCfg.local) || not (validAddr fCfg.remote))
+                    , onCheck (\checked -> (Update index { fCfg | enabled = checked }))
+                    , checked fCfg.enabled
                     ]
                     []
                 , text "Active"
@@ -178,17 +180,17 @@ forwardView index ( enabled, local, remote ) =
             [ input
                 [ class "form-control"
                 , placeholder "Local Address"
-                , value local
-                , onInput (\newLocal -> (Update index ( False, newLocal, remote )))
+                , value fCfg.local
+                , onInput (\newLocal -> (Update index { fCfg | local = newLocal }))
                 ]
                 []
             ]
         , div [ class "form-group" ]
             [ input
-                [ value remote
+                [ value fCfg.remote
                 , class "form-control"
                 , placeholder "Remote Address"
-                , onInput (\newRemote -> (Update index ( False, local, newRemote )))
+                , onInput (\newRemote -> (Update index { fCfg | remote = newRemote }))
                 ]
                 []
             ]
@@ -199,16 +201,20 @@ forwardView index ( enabled, local, remote ) =
 view : Model -> Html Msg
 view model =
     div [ class "container" ]
-        (if not model.loaded then
-            [ p [ class "lead" ] [ text "Loading..." ] ]
-         else
-            ((if List.length model.forwards == 0 then
-                [ p [ class "lead text-muted" ] [ text "No configured port forwards" ] ]
-              else
-                List.indexedMap forwardView model.forwards
-             )
-                ++ [ hr [] []
-                   , button [ class "btn btn-default", onClick New ] [ text "Add" ]
-                   ]
-            )
+        ([ p [] [ text "Use the controls below to configure port forwards. When 'Active', the field will turn green when a sucessful connection has been made. A number will also appear on the right during 'Active' mode, indicating the 'current / total' number of connections." ]
+         , hr [] []
+         ]
+            ++ (if not model.loaded then
+                    [ p [ class "lead" ] [ text "Loading..." ] ]
+                else
+                    ((if List.length model.forwards == 0 then
+                        [ p [ class "lead text-muted" ] [ text "No configured port forwards" ] ]
+                      else
+                        List.indexedMap forwardView model.forwards
+                     )
+                        ++ [ hr [] []
+                           , button [ class "btn btn-default", onClick New ] [ text "Add" ]
+                           ]
+                    )
+               )
         )
