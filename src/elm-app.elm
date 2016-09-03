@@ -5,7 +5,7 @@ import Html.App as Html
 import Html.Attributes exposing (..)
 import Html.Events exposing (onInput, onClick, onCheck)
 import String
-import Array
+import Array exposing (Array)
 import Regex
 import Json.Encode
 import Json.Decode exposing ((:=))
@@ -32,13 +32,29 @@ encodeForwards cfg =
         )
 
 
+type alias CfgStore =
+    { enabled : Bool
+    , local : String
+    , remote : String
+    }
+
+
 jsonToForward =
-    Json.Decode.object5 ForwardConfig
+    Json.Decode.object3 CfgStore
         ("enabled" := Json.Decode.bool)
         ("local" := Json.Decode.string)
         ("remote" := Json.Decode.string)
-        ("lastLocalError" := Json.Decode.string)
-        ("lastRemoteError" := Json.Decode.string)
+
+
+cfgDefaults { enabled, local, remote } =
+    { enabled = enabled
+    , local = local
+    , remote = remote
+    , lastLocalError = ""
+    , lastRemoteError = ""
+    , count = 0
+    , total = 0
+    }
 
 
 decodeForwards : String -> List ForwardConfig
@@ -48,7 +64,7 @@ decodeForwards data =
             []
 
         Ok f ->
-            f
+            List.map cfgDefaults f
 
 
 main =
@@ -65,6 +81,8 @@ type alias ForwardConfig =
     , remote : String
     , lastLocalError : String
     , lastRemoteError : String
+    , count : Int
+    , total : Int
     }
 
 
@@ -88,15 +106,68 @@ type Msg
     | Update Int ForwardConfig
     | Remove Int
     | Loaded String
+    | ListenError ( Int, String )
+    | ConnectError ( Int, String )
+    | ConnectionCount ( Int, Int, Int )
+
+
+replaceOne list index item =
+    (List.take index list) ++ [ item ] ++ (List.drop (index + 1) list)
+
+
+replaceLocalErr f err =
+    { f | lastLocalError = err }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        ListenError ( index, err ) ->
+            let
+                rec =
+                    Array.get index (Array.fromList model.forwards)
+            in
+                case rec of
+                    Nothing ->
+                        ( model, Cmd.none )
+
+                    Just r ->
+                        ( { model | forwards = replaceOne model.forwards index { r | lastLocalError = err } }
+                        , Cmd.none
+                        )
+
+        ConnectError ( index, err ) ->
+            let
+                rec =
+                    Array.get index (Array.fromList model.forwards)
+            in
+                case rec of
+                    Nothing ->
+                        ( model, Cmd.none )
+
+                    Just r ->
+                        ( { model | forwards = replaceOne model.forwards index { r | lastRemoteError = err } }
+                        , Cmd.none
+                        )
+
+        ConnectionCount ( index, cur, tot ) ->
+            let
+                rec =
+                    Array.get index (Array.fromList model.forwards)
+            in
+                case rec of
+                    Nothing ->
+                        ( model, Cmd.none )
+
+                    Just r ->
+                        ( { model | forwards = replaceOne model.forwards index { r | count = cur, total = tot, lastRemoteError = "" } }
+                        , Cmd.none
+                        )
+
         New ->
             let
                 nf =
-                    model.forwards ++ [ { enabled = False, local = "", remote = "", lastLocalError = "", lastRemoteError = "" } ]
+                    model.forwards ++ [ { enabled = False, local = "", remote = "", lastLocalError = "", lastRemoteError = "", count = 0, total = 0 } ]
             in
                 ( { model | forwards = nf }
                 , saveConfig (encodeForwards nf)
@@ -105,7 +176,7 @@ update msg model =
         Update i f ->
             let
                 nf =
-                    (List.take i model.forwards) ++ [ f ] ++ (List.drop (i + 1) model.forwards)
+                    replaceOne model.forwards i f
             in
                 ( { model | forwards = nf }
                 , saveConfig (encodeForwards nf)
@@ -139,12 +210,26 @@ port loadConfig : () -> Cmd msg
 port loadedConfig : (String -> msg) -> Sub msg
 
 
+port countUpdate : (( Int, Int, Int ) -> msg) -> Sub msg
+
+
+port listenError : (( Int, String ) -> msg) -> Sub msg
+
+
+port connectError : (( Int, String ) -> msg) -> Sub msg
+
+
 port saveConfig : String -> Cmd msg
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    loadedConfig Loaded
+    Sub.batch
+        [ loadedConfig Loaded
+        , countUpdate ConnectionCount
+        , listenError ListenError
+        , connectError ConnectError
+        ]
 
 
 
@@ -161,41 +246,92 @@ validAddr addr =
             val >= 1 && val <= 65535
 
 
+localError : ForwardConfig -> String
+localError fCfg =
+    if not (validAddr fCfg.local) then
+        "missing valid port"
+    else if fCfg.enabled then
+        fCfg.lastLocalError
+    else
+        ""
+
+
+remoteError : ForwardConfig -> String
+remoteError fCfg =
+    if not (validAddr fCfg.remote) then
+        "missing valid port"
+    else if fCfg.enabled then
+        fCfg.lastRemoteError
+    else
+        ""
+
+
+hasLocalError : ForwardConfig -> Bool
+hasLocalError fCfg =
+    localError fCfg /= ""
+
+
+hasRemoteError : ForwardConfig -> Bool
+hasRemoteError fCfg =
+    remoteError fCfg /= ""
+
+
 forwardView : Int -> ForwardConfig -> Html Msg
 forwardView index fCfg =
     div [ class "form-inline" ]
-        [ div [ class "checkbox" ]
+        ([ div [ class "checkbox" ]
             [ label []
                 [ input
                     [ type' "checkbox"
                     , disabled (not (validAddr fCfg.local) || not (validAddr fCfg.remote))
-                    , onCheck (\checked -> (Update index { fCfg | enabled = checked }))
+                    , onCheck (\checked -> (Update index { fCfg | enabled = checked, count = 0, total = 0, lastLocalError = "", lastRemoteError = "" }))
                     , checked fCfg.enabled
                     ]
                     []
                 , text "Active"
                 ]
             ]
-        , div [ class "form-group" ]
+         , div
+            [ class
+                (if (hasLocalError fCfg) then
+                    "form-group has-error"
+                 else
+                    "form-group"
+                )
+            ]
             [ input
                 [ class "form-control"
                 , placeholder "Local Address"
                 , value fCfg.local
-                , onInput (\newLocal -> (Update index { fCfg | local = newLocal }))
+                , onInput (\newLocal -> (Update index { fCfg | local = newLocal, enabled = False }))
                 ]
                 []
+            , span [ class "help-block" ] [ text (localError fCfg) ]
             ]
-        , div [ class "form-group" ]
+         , div
+            [ class
+                (if (hasRemoteError fCfg) then
+                    "form-group has-error"
+                 else
+                    "form-group"
+                )
+            ]
             [ input
                 [ value fCfg.remote
                 , class "form-control"
                 , placeholder "Remote Address"
-                , onInput (\newRemote -> (Update index { fCfg | remote = newRemote }))
+                , onInput (\newRemote -> (Update index { fCfg | remote = newRemote, enabled = False }))
                 ]
                 []
+            , span [ class "help-block" ] [ text (remoteError fCfg) ]
             ]
-        , button [ class "btn btn-danger", onClick (Remove index) ] [ text "Remove" ]
-        ]
+         , button [ class "btn btn-danger", onClick (Remove index) ] [ text "Remove" ]
+         ]
+            ++ if fCfg.enabled then
+                [ span [ class "badge" ] [ text ((toString fCfg.count) ++ " / " ++ (toString fCfg.total)) ] ]
+               else
+                []
+        )
 
 
 view : Model -> Html Msg

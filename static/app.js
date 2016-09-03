@@ -9,3 +9,17 @@ app.ports.loadConfig.subscribe(
 		items=>app.ports.loadedConfig.send(items.config||"")
 	)
 )
+
+chrome.runtime.onMessage.addListener(message=>{
+	switch (message.Type) {
+		case "listenError":
+			app.ports.listenError.send([message.Index, message.Message])
+			break;
+		case "connectError":
+			app.ports.connectError.send([message.Index, message.Message])
+			break;
+		case "connectionCount":
+			app.ports.countUpdate.send([message.Index, message.Current, message.Total])
+			break;
+	}
+})
